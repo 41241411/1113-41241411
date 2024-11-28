@@ -8,6 +8,8 @@
 
     <!-- 引入 Bootstrap 的 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 先引入 SweetAlert2 的 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* 設定背景圖片 */
         body {
@@ -26,7 +28,8 @@
         }
 
         .container {
-            width: 40vh;
+            height: 80vh;
+            width: 100vh;
             background-color: rgba(255, 255, 255, 0.9);
             padding: 20px;
             border-radius: 15px;
@@ -37,7 +40,9 @@
         // 引入 Firebase SDK 模組
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
-        import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+        import { getDatabase, ref, set, get, update, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+        import { signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+        import { push } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
         // Firebase 配置
         const firebaseConfig = {
@@ -85,26 +90,15 @@
                     // 獲取當前台灣時間
                     const lastLogin = getTaiwanTime();
 
-                    get(userRef)  // 檢查用戶是否已存在
+                    get(userRef) // 檢查用戶是否已存在
                         .then((snapshot) => {
                             if (snapshot.exists()) {
-                                // 用戶資料存在，更新 lastLogin
-                                set(userRef, {
-                                    name: user.displayName,
-                                    email: user.email,
-                                    photoURL: user.photoURL,
-                                    lastLogin: lastLogin // 更新最後登入時間
-                                }).then(() => {
-                                    console.log("User data updated with Taiwan time:", lastLogin);
-                                    document.getElementById('userName').textContent = `歡迎，${user.displayName}`;
-                                    document.getElementById('userEmail').textContent = `電子郵件：${user.email}`;
-                                    document.getElementById('userPhoto').src = user.photoURL;
-                                    document.getElementById('lastLogin').textContent = `最後登入時間: ${lastLogin}`;
-                                    document.getElementById('loginInfo').style.display = 'block';
-                                    document.getElementById('registerSection').style.display = 'none';
-                                    document.getElementById('registerBtn').style.display = 'none';
-                                }).catch((error) => {
-                                    console.error("Error updating user data: ", error);
+                                // 用戶資料存在，提示已註冊，請登入
+                                Swal.fire({
+                                    title: '提醒',
+                                    text: '您已註冊，請直接登入',
+                                    icon: 'info',
+                                    confirmButtonText: '確認'
                                 });
                             } else {
                                 // 用戶資料不存在，創建新資料
@@ -112,18 +106,18 @@
                                     name: user.displayName,
                                     email: user.email,
                                     photoURL: user.photoURL,
-                                    lastLogin: lastLogin // 新用戶資料設置
+                                    lastLogin: lastLogin,// 新用戶資料設置
+                                    accountBooks: [] // 初始化為空陣列
                                 }).then(() => {
-                                    console.log("User data saved with Taiwan time:", lastLogin);
-                                    document.getElementById('userName').textContent = `歡迎，${user.displayName}`;
-                                    document.getElementById('userEmail').textContent = `電子郵件：${user.email}`;
-                                    document.getElementById('userPhoto').src = user.photoURL;
-                                    document.getElementById('lastLogin').textContent = `最後登入時間: ${lastLogin}`;
-                                    document.getElementById('loginInfo').style.display = 'block';
-                                    document.getElementById('registerSection').style.display = 'none';
-                                    document.getElementById('registerBtn').style.display = 'none';
+                                    console.log("New user data saved with Taiwan time:", lastLogin);
+                                    Swal.fire({
+                                        title: '成功!',
+                                        text: '註冊成功！請使用登入按鈕登入。',
+                                        icon: 'success',
+                                        confirmButtonText: '確認'
+                                    });
                                 }).catch((error) => {
-                                    console.error("Error saving user data: ", error);
+                                    console.error("Error saving new user data: ", error);
                                 });
                             }
                         }).catch((error) => {
@@ -132,20 +126,303 @@
                 })
                 .catch((error) => {
                     console.error(error);
-                    alert('註冊失敗，請稍後再試');
+                    Swal.fire({
+                        title: '錯誤!',
+                        text: '註冊失敗，請稍後再試',
+                        icon: 'error',
+                        confirmButtonText: '確認'
+                    });
                 });
         });
 
         // 登入按鈕功能
         document.getElementById('loginBtn').addEventListener('click', () => {
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    window.location.href = "login.html"; // 導向成績頁面
-                } else {
-                    alert('請先註冊或登入');
-                }
+            signInWithPopup(auth, provider)
+                .then((result) => {
+                    const user = result.user;
+                    const userRef = ref(database, 'users/' + user.uid);
+
+                    // 獲取當前台灣時間
+                    const lastLogin = getTaiwanTime();
+
+                    get(userRef) // 確保用戶資料存在
+                        .then((snapshot) => {
+                            if (snapshot.exists()) {
+                                // 用戶資料存在，更新 lastLogin
+                                update(userRef, {
+                                    name: user.displayName,
+                                    email: user.email,
+                                    photoURL: user.photoURL,
+                                    lastLogin: lastLogin, // 更新最後登入時間
+                                }).then(() => {
+                                    console.log("User data updated with Taiwan time:", lastLogin);
+                                    loadAccountBooks();
+                                    // 顯示用戶資料
+                                    document.getElementById('userName').textContent = `歡迎，${user.displayName}`;
+                                    document.getElementById('userEmail').textContent = `電子郵件：${user.email}`;
+                                    document.getElementById('userPhoto').src = user.photoURL;
+                                    document.getElementById('lastLogin').textContent = `最後登入時間: ${lastLogin}`;
+                                    document.getElementById('loginInfo').style.display = 'block';
+
+                                    // 隱藏註冊與登入按鈕
+                                    document.getElementById('registerBtn').style.display = 'none';
+                                    document.getElementById('loginBtn').style.display = 'none';
+                                    document.getElementById('registerSection').style.display = 'none';
+
+                                    // 顯示會員資訊與登出按鈕
+                                    document.getElementById('users').style.display = 'inline-block';
+                                    document.getElementById('logoutBtn').style.display = 'inline-block';
+
+                                    // 顯示記帳內容
+                                    document.getElementById('accountingSection').style.display = 'block';
+                                }).catch((error) => {
+                                    console.error("Error updating user data: ", error);
+                                });
+                            } else {
+                                // 用戶資料不存在，提示先註冊
+                                Swal.fire({
+                                    title: '錯誤!',
+                                    text: '請先註冊後再登入',
+                                    icon: 'error',
+                                    confirmButtonText: '確認'
+                                });
+                            }
+                        }).catch((error) => {
+                            console.error("Error retrieving user data: ", error);
+                        });
+                })
+                .catch((error) => {
+                    console.error(error);
+                    Swal.fire({
+                        title: '錯誤!',
+                        text: '登入失敗，請稍後再試',
+                        icon: 'error',
+                        confirmButtonText: '確認'
+                    });
+                });
+        });
+
+        // 登出按鈕功能
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            signOut(auth)
+                .then(() => {
+                    console.log("User signed out");
+
+                    // 隱藏會員資訊與登出按鈕
+                    document.getElementById('users').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'none';
+
+                    // 顯示註冊與登入按鈕
+                    document.getElementById('registerBtn').style.display = 'inline-block';
+                    document.getElementById('loginBtn').style.display = 'inline-block';
+                    document.getElementById('registerSection').style.display = 'inline-block';
+
+                    // 隱藏用戶資料
+                    document.getElementById('loginInfo').style.display = 'none';
+
+                    // 隱藏記帳內容
+                    document.getElementById('accountingSection').style.display = 'none';
+                })
+                .catch((error) => {
+                    console.error("Error signing out: ", error);
+                });
+        });
+
+        document.getElementById('saveRecordBtn').addEventListener('click', () => {
+            const user = auth.currentUser; // 確認目前的使用者
+            if (!user) {
+                Swal.fire({
+                    title: '錯誤!',
+                    text: '請先登入再記帳',
+                    icon: 'error',
+                    confirmButtonText: '確認'
+                });
+                return;
+            }
+
+            // 獲取輸入欄位的值
+            const name = document.getElementById('item').value.trim();
+            const amount = document.getElementById('content1').value.trim();
+
+            // 簡單的驗證，確保輸入不為空
+            if (!name || !amount) {
+                Swal.fire({
+                    title: '錯誤!',
+                    text: '請輸入有效的記帳資料。',
+                    icon: 'error',
+                    confirmButtonText: '確認'
+                });
+
+                return;
+            }
+
+            // 定義記帳資料結構
+            const recordData = {
+                name: name,
+                amount: amount,
+                timestamp: getTaiwanTime(), // 記錄當前台灣時間
+            };
+            const userAccountBooksRef = ref(database, `users/${user.uid}/accountBooks`);
+
+            // 使用 push 產生唯一鍵，並將資料儲存到該鍵下
+            const newAccountBookRef = push(userAccountBooksRef);
+            set(newAccountBookRef, recordData).then(() => {
+                // 顯示儲存成功的提示
+                Swal.fire({
+                    title: '儲存成功!',
+                    text: '記帳資料已成功儲存。',
+                    icon: 'success',
+                    confirmButtonText: '確認'
+                });
+                // 顯示剛剛新增的記帳資料
+                // 清空表單欄位
+                document.getElementById('item').value = '';
+                document.getElementById('content1').value = '';
+                loadAccountBooks();
+            }).catch((error) => {
+                Swal.fire({
+                    title: '錯誤!',
+                    text: '儲存資料時發生錯誤: ' + error.message,
+                    icon: 'error',
+                    confirmButtonText: '確認'
+                });
             });
         });
+
+
+        // 加載用戶的記帳資料
+        function loadAccountBooks() {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const userAccountBooksRef = ref(database, `users/${user.uid}/accountBooks`);
+
+            get(userAccountBooksRef).then((snapshot) => {
+                const transactionTableBody = document.getElementById('transactionTableBody');
+                transactionTableBody.innerHTML = ''; // 清空現有內容
+
+                if (snapshot.exists()) {
+                    snapshot.forEach((childSnapshot) => {
+                        const record = childSnapshot.val();
+                        const recordId = childSnapshot.key;
+
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                    <td>${record.name}</td>
+                    <td>${record.amount}</td>
+                    <td>${record.timestamp}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary edit-btn" data-id="${recordId}" data-bs-toggle="modal" data-bs-target="#editModal">編輯</button>
+                        <button class="btn btn-sm btn-danger delete-btn" data-id="${recordId}">刪除</button>
+                    </td>
+                `;
+                        transactionTableBody.appendChild(row);
+                    });
+
+                    // 設置編輯按鈕的事件監聽
+                    document.querySelectorAll('.edit-btn').forEach((button) => {
+                        button.addEventListener('click', (e) => {
+                            const recordId = e.target.getAttribute('data-id');
+                            editRecord(recordId);
+                        });
+                    });
+                } else {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<td colspan="4" class="text-center">沒有記帳資料。</td>`;
+                    transactionTableBody.appendChild(row);
+                }
+            }).catch((error) => {
+                console.error("Error loading account books: ", error);
+            });
+        }
+
+
+        function handleEdit(recordKey, record) {
+            const newName = prompt("請輸入新的項目名稱：", record.name);
+            const newAmount = prompt("請輸入新的金額：", record.amount);
+
+            if (newName !== null && newAmount !== null) {
+                const userAccountBooksRef = ref(database, `users/${auth.currentUser.uid}/accountBooks/${recordKey}`);
+                update(userAccountBooksRef, { name: newName, amount: newAmount })
+                    .then(() => {
+                        Swal.fire('成功!', '資料已更新', 'success');
+                        loadAccountBooks(); // 重新加載表格
+                    })
+                    .catch((error) => {
+                        Swal.fire('錯誤!', '更新失敗: ' + error.message, 'error');
+                    });
+            }
+        }
+
+        function handleDelete(recordKey) {
+            Swal.fire({
+                title: '確定要刪除嗎？',
+                text: '刪除後將無法復原！',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '是的，刪除',
+                cancelButtonText: '取消',
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const userAccountBooksRef = ref(database, `users/${auth.currentUser.uid}/accountBooks/${recordKey}`);
+                    remove(userAccountBooksRef)
+                        .then(() => {
+                            Swal.fire('已刪除!', '資料已成功刪除。', 'success');
+                            loadAccountBooks(); // 重新加載表格
+                        })
+                        .catch((error) => {
+                            Swal.fire('錯誤!', '刪除失敗: ' + error.message, 'error');
+                        });
+                }
+            });
+        }
+        function editRecord(recordId) {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const recordRef = ref(database, `users/${user.uid}/accountBooks/${recordId}`);
+
+            // 載入記錄資料到 Modal 表單
+            get(recordRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const record = snapshot.val();
+                    document.getElementById('editName').value = record.name;
+                    document.getElementById('editAmount').value = record.amount;
+                    document.getElementById('editTimestamp').value = record.timestamp;
+                    document.getElementById('saveEditBtn').setAttribute('data-id', recordId);
+                } else {
+                    Swal.fire('錯誤', '找不到該記錄', 'error');
+                }
+            }).catch((error) => {
+                console.error("Error loading record for editing: ", error);
+            });
+        }
+
+        // 儲存修改
+        document.getElementById('saveEditBtn').addEventListener('click', () => {
+            const recordId = document.getElementById('saveEditBtn').getAttribute('data-id');
+            const updatedRecord = {
+                name: document.getElementById('editName').value,
+                amount: parseFloat(document.getElementById('editAmount').value),
+                timestamp: document.getElementById('editTimestamp').value
+            };
+
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const recordRef = ref(database, `users/${user.uid}/accountBooks/${recordId}`);
+            update(recordRef, updatedRecord).then(() => {
+                Swal.fire('成功', '記錄已更新', 'success');
+                loadAccountBooks(); // 重新載入表格
+                const editModal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+                editModal.hide(); // 關閉 Modal
+            }).catch((error) => {
+                console.error("Error updating record: ", error);
+                Swal.fire('錯誤', '更新失敗', 'error');
+            });
+        });
+
+
     </script>
 </head>
 
@@ -154,6 +431,11 @@
         <h2 class="my-4">Firebase 會員認證與註冊登入</h2>
         <button id="registerBtn" class="btn btn-primary">註冊</button>
         <button id="loginBtn" class="btn btn-primary">登入</button>
+        <button id="users" type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#exampleModal"
+            style="display: none;">
+            會員資訊
+        </button>
+        <button id="logoutBtn" class="btn btn-primary" style="display: none;">登出</button>
         <hr style="border: 1px solid #000;">
 
         <!-- 註冊與登入區域 -->
@@ -162,18 +444,92 @@
                 <h3 class="my-3">註冊帳號</h3>
                 <h4>請使用 Google 帳號認證</h4>
             </div>
-
-            <!-- 用戶基本信息顯示區域 -->
-            <div id="loginInfo" style="display: none;">
-                <img id="userPhoto" src="" alt="用戶圖片" style="width: 100px; height: 100px; border-radius: 50%;">
-                <p id="userName"></p>
-                <p id="userEmail"></p>
-                <p id="lastLogin"></p>
+        </div>
+        <!-- 記帳區域 -->
+        <div id="accountingSection" style="display: none;">
+            <h3 class="md-3">記帳</h3>
+            <form id="accountingForm">
+                <div class="mb-3">
+                    <label for="item" class="form-label">項目</label>
+                    <input type="text" id="item" class="form-control" placeholder="請輸入項目">
+                </div>
+                <div class="mb-3">
+                    <label for="content1" class="form-label">金額</label>
+                    <input type="text" id="content1" class="form-control" placeholder="請輸入金額">
+                </div>
+                <button type="button" id="saveRecordBtn" class="btn btn-success">儲存記錄</button>
+            </form>
+            <div style="max-height: 240px; overflow-y: auto;">
+                <table class="table table-striped table-bordered">
+                    <thead class="thead-dark">
+                        <tr>
+                            <th>項目名稱</th>
+                            <th>金額</th>
+                            <th>時間</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionTableBody">
+                        <!-- 資料將動態插入此處 -->
+                    </tbody>
+                </table>
             </div>
-
         </div>
     </div>
-
+    <!-- 會員資訊 Modal -->
+    <div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">  <!-- 加上 modal-dialog-centered -->
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5" id="exampleModalLabel">會員資訊</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="loginInfo" style="display: none;">
+                        <img id="userPhoto" src="" alt="用戶圖片" style="width: 100px; height: 100px; border-radius: 50%;">
+                        <p id="userName"></p>
+                        <p id="userEmail"></p>
+                        <p id="lastLogin"></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 編輯 Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editModalLabel">編輯</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editForm">
+                        <div class="mb-3">
+                            <label for="editName" class="form-label">項目名稱</label>
+                            <input type="text" class="form-control" id="editName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editAmount" class="form-label">金額</label>
+                            <input type="number" class="form-control" id="editAmount" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTimestamp" class="form-label">時間</label>
+                            <input type="datetime-local" class="form-control" id="editTimestamp" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="saveEditBtn">儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- 引入 Bootstrap 的 JS -->
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
